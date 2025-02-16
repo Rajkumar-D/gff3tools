@@ -1,30 +1,31 @@
 package uk.ac.ebi.embl.gfftools;
 
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.sql.SparkSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import scala.reflect.internal.Trees;
 import uk.ac.ebi.embl.gfftools.model.FFAnnotation;
 import uk.ac.ebi.embl.gfftools.repository.NativeGffRepository;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.regex.Pattern;
 
 
 @SpringBootApplication
 public class Application implements CommandLineRunner {
 
-    Logger logger = LoggerFactory.getLogger(Application.class);
     @Autowired
     NativeGffRepository nativeRepository;
 
@@ -39,8 +40,6 @@ public class Application implements CommandLineRunner {
 
     @Value("${spark.master}")
     private String sparkMaster;
-
-    public static final Pattern featurePattern = Pattern.compile("^FT\\s{3}\\S+");
 
 
     String primaryAcc;
@@ -58,13 +57,14 @@ public class Application implements CommandLineRunner {
     public void run(String... args) throws Exception {
 
         primaryAcc = args[0];
+        stage = args[1];
         Path outFilePath = getOutputFilePath(outputDir +"/"+primaryAcc+"/");
         setFile = outFilePath + "/set-" + primaryAcc;
         conFile =outFilePath + "/con-" + primaryAcc;
         masterFile = outFilePath+ "/master-" + primaryAcc;
 
         try {
-
+            if(stage.equals("DOWNLOAD")) {
                 List<String> command = getGetSetffCommand();
 
                 ProcessBuilder processBuilder = new ProcessBuilder(command);
@@ -83,47 +83,101 @@ public class Application implements CommandLineRunner {
                 }
 
                 assert Files.exists(Paths.get(setFile));
+            } else if (stage.equals("CALCULATE")) {
+
 
                 FFAnnotation setAnnotation = getAnnotationDetails(primaryAcc, setFile);
                 FFAnnotation conAnnotation = Files.exists(Paths.get(conFile)) ?
                         getAnnotationDetails(primaryAcc, conFile) :
                         new FFAnnotation(primaryAcc, 0L, 0L);
 
-                nativeRepository.updateAnnotation(setAnnotation, conAnnotation);
-            System.out.println("############################################");
-            System.out.println("SET: " + setAnnotation.toString());
-            System.out.println("CON: " + conAnnotation.toString());
-            System.out.println("############################################");
 
+                System.out.println("SET: " + setAnnotation.toString());
+                System.out.println("CON: " + conAnnotation.toString());
+                //nativeRepository.updateAnnotation(setAnnotation, conAnnotation);
+            }
 
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            e.printStackTrace();
         }
     }
 
-    public FFAnnotation getAnnotationDetails(String primaryAcc, String filePath) throws IOException {
+    public FFAnnotation getAnnotationDetails(String primaryAcc, String filePath) throws IOException, InterruptedException {
 
         System.out.println("FilePath: " + filePath);
-        long totalFeatureCount = 0;
-        long totalAnnotationSize = 0;
+        List<String> commandList = new ArrayList<>();
+        commandList.add("/usr/bin/grep");
+        commandList.add("'FT'");
+        commandList.add(filePath);
+        commandList.add(">");
+        commandList.add(filePath+"-annotation");
+        //String command = "/usr/bin/grep  'FT' "+filePath+" >> "+filePath+"-annotation";
+        //executeCommand(command);
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (line.matches("^FT.*")) {
-                    totalAnnotationSize += line.getBytes().length;
-                    if (featurePattern.matcher(line).find()){
-                        totalFeatureCount++;
-                    }
-                }
-            }
-            return new FFAnnotation(primaryAcc, totalFeatureCount, totalAnnotationSize);
-        }catch (Exception e){
-            throw new RuntimeException("Error while getting annotation: "+e);
+        ProcessBuilder processBuilder = new ProcessBuilder(commandList);
+        processBuilder.redirectErrorStream(true);
+        Process process = processBuilder.start();
+
+        Long totalAnnotationSize = Files.size(Paths.get(filePath+"-annotation"));
+
+
+        commandList = new ArrayList<>();
+        commandList.add("/usr/bin/grep");
+        commandList.add("-e");
+        commandList.add("'^FT   \\w'");
+        commandList.add(filePath+"-annotation");
+        commandList.add("|");
+        commandList.add("/usr/bin/wc");
+        commandList.add("-l");
+
+        processBuilder = new ProcessBuilder(commandList);
+        processBuilder.redirectErrorStream(true);
+         process = processBuilder.start();
+
+        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        String outLine;
+        while ((outLine = reader.readLine()) != null) {
+            System.out.println(outLine);
         }
+
+
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            throw new RuntimeException( " \ncommand Exit code: " + exitCode);
+        }
+
+    Long totalFeatureCount = Long.parseLong(outLine);
+        //String command = "/usr/bin/grep -e \'^FT   \\w\' set-CETS01000000 | wc -l";
+        //Long totalFeatureCount = Long.parseLong(executeCommand(command));
+
+        System.out.println("Total Annotation Size: " + totalAnnotationSize);
+        System.out.println("Total Feature Count: " + totalFeatureCount);
+        return new FFAnnotation(primaryAcc,totalFeatureCount, totalAnnotationSize);
+
     }
 
-    public List<String> getGetSetffCommand() {
+
+
+    public String executeCommand(String command) throws IOException, InterruptedException {
+        ProcessBuilder processBuilder = new ProcessBuilder(command);
+        Process process = processBuilder.start();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        String line;
+        String outPut = "";
+        while ((line = reader.readLine()) != null) {
+            outPut+=line;
+        }
+
+        // Wait for the process to exit and check for errors
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            throw new RuntimeException(command + " \ncommand Exit code: " + exitCode);
+        }
+
+        return outPut;
+    }
+
+    public List<String> getGetSetffCommand(){
         List<String> command = new ArrayList<>();
         command.add("java");
         command.add("-cp");
@@ -137,10 +191,6 @@ public class Application implements CommandLineRunner {
         command.add(conFile);
         command.add("-master");
         command.add(masterFile);
-        command.add("-non_public");
-        ;
-
-        logger.info(command.toString());
 
         return command;
     }

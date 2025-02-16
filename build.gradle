@@ -24,6 +24,17 @@ bootJar {
 	archiveFileName = 'gff3tools.jar'  // Ensure correct JAR name
 }
 
+tasks.shadowJar {
+	archiveClassifier.set("")  // ✅ Create a Spark-compatible Fat JAR
+	zip64 = true
+	manifest {
+		attributes 'Main-Class': 'uk.ac.ebi.embl.gfftools.Application'  // Update with your main class
+	}
+}
+
+build.dependsOn shadowJar
+
+
 repositories {
 	mavenCentral()
 }
