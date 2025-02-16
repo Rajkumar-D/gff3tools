@@ -1,0 +1,53 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '3.4.2'
+	id 'io.spring.dependency-management' version '1.1.7'
+	id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+
+group = 'uk.ac.ebi.embl.annotation'
+version = '0.0.1'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(17)
+	}
+}
+
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
+
+bootJar {
+	archiveFileName = 'gff3tools.jar'  // Ensure correct JAR name
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	annotationProcessor 'org.projectlombok:lombok'
+
+	implementation 'org.springframework.boot:spring-boot-starter'
+	developmentOnly 'org.springframework.boot:spring-boot-devtools'
+
+	implementation group: 'org.apache.spark', name: 'spark-core_2.12', version: '3.1.1'
+	implementation group: 'org.apache.spark', name: 'spark-sql_2.12', version: '3.1.1'
+	implementation "org.scala-lang:scala-library:2.12.10"
+	implementation 'javax.servlet:javax.servlet-api:4.0.1'
+
+	implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	runtimeOnly 'com.oracle.database.jdbc:ojdbc10:19.8.0.0'
+	implementation 'org.apache.logging.log4j:log4j-slf4j-impl:2.17.1'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
