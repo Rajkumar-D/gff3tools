@@ -14,7 +14,7 @@ public class NativeGffRepository {
 
     @Transactional
     public void updateAnnotation(FFAnnotation contigAnnotation, FFAnnotation scaffoldAnnotation){
-        String query="update DROP_ENA_6374_GFF3_2016 set contig_annotation_size_bytes = ?, scaffold_annotation_size_bytes = ?, contig_feature_count= ?, scaffold_feature_count=?,gff3_status=? where primaryacc# = ? ";
+        String query="update DROP_ENA_6374_GFF3_2024 set contig_annotation_size_bytes = ?, scaffold_annotation_size_bytes = ?, contig_feature_count= ?, scaffold_feature_count=?,gff3_status=? where primaryacc# = ? ";
         jdbcTemplate.update(query, contigAnnotation.getTotalAnnotationSize(), scaffoldAnnotation.getTotalAnnotationSize(),contigAnnotation.getTotalFeatureCount(),scaffoldAnnotation.getTotalFeatureCount(),"CALCULATED",contigAnnotation.getPrimaryAccession());
 
     }
